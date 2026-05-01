@@ -3,9 +3,9 @@
 # Devem alterar as classes e funções neste ficheiro de acordo com as instruções do enunciado.
 # Além das funções e classes sugeridas, podem acrescentar outras que considerem pertinentes.
 
-# Grupo 00:
-# 00000 Nome1
-# 00000 Nome2
+# Grupo 39:
+# 113868 Guilherme Marques
+# 110126 António Correia
 
 import random, copy
 from sys import stdin
@@ -41,6 +41,13 @@ class SlitherlinkState:
 
 class Board:
     """Representação interna de um tabuleiro de Slitherlink."""
+    def __init__(self, clue):
+        self.clue = clue
+        N = len(clue)
+        M = len(clue[0])
+
+        self.h_edges = [[0 for _ in range(M)] for _ in range(N+1)]
+        self.v_edges = [[0 for _ in range(M+1)] for _ in range(N)]
 
     def adjacent_cell(self, cell:tuple) -> list:
         """Devolve uma lista das células que fazem
@@ -61,17 +68,14 @@ class Board:
 
     @staticmethod
     def parse_instance():
-        """Lê o test do standard input (stdin) que é passado como argumento
-        e retorna uma instância da classe Board.
-
-        Por exemplo:
-            $ python3 pipe.py < test-01.txt
-
-            > from sys import stdin
-            > line = stdin.readline().split()
-        """
-        # TODO
-        pass
+        import sys
+        clues_temp = []
+        for line in sys.stdin:
+            value = line.split()
+            if value:
+                clues_temp.append(value)
+        clues_tuple = tuple(tuple(line) for line in clues_temp)
+        return Board(clues_tuple)
 
     # TODO: outros metodos da classe
 
@@ -112,13 +116,17 @@ class Slitherlink(Problem):
     
 
 
-if __name__ == "__main__":
-    # TODO:
-    # Ler o ficheiro do standard input,
-    # Usar uma técnica de procura para resolver a instância,
-    # Retirar a solução a partir do nó resultante,
-    # Imprimir para o standard output no formato indicado.
-    pass
+if __name__ == '__main__':
+    meu_board = Board.parse_instance()
+    
+    print("--- Clues Read ---")
+    for linha in meu_board.clue:
+        print(linha)
+        
+    print("\n--- Internal Dimensions ---")
+    print(f"Clues Matrixs   : {len(meu_board.clue)} lines x {len(meu_board.clue[0])} columns")
+    print(f"h_edges Matrix  : {len(meu_board.h_edges)} lines x {len(meu_board.h_edges[0])} columns")
+    print(f"v_edges Matrix  : {len(meu_board.v_edges)} lines x {len(meu_board.v_edges[0])} columns")
 
 
 

@@ -14,6 +14,12 @@
 
       perSystem = { config, self', inputs', pkgs, system, ... }: {
         devenv.shells.default = {
+          # Define a raiz para evitar erros de leitura na Nix Store
+          devenv.root = 
+            let
+              envRoot = builtins.getEnv "PWD";
+            in if envRoot != "" then envRoot else ./.;
+
           name = "slitherlink-ia-env";
 
           packages = with pkgs; [
