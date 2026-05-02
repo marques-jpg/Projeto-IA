@@ -56,15 +56,24 @@ class Board:
         pass
 
     def get_cell_edges(self, row:int, column:int) -> list:
-        """Devolve os arestas da célula enviada no argumento"""
-        #TODO
-        pass
+        return [
+            ('h', row, column),
+            ('h', row + 1, column),
+            ('v', row, column),
+            ('v', row, column + 1)
+        ]
 
     def get_active_edges(self, row:int, column:int) -> list:
-        """Devolve o número de arestas ativas"""
-        #TODO
-        pass
-
+        cell_edges = self.get_cell_edges(self, row, column)
+        count = 0
+        for typ, r, c in cell_edges:
+            if typ == 'h':
+                if self.h_edges[r][c] == 1: 
+                    count += 1
+            elif typ == 'v':
+                if self.v_edges[r][c] == 1:
+                    count += 1
+        return count
 
     @staticmethod
     def parse_instance():
