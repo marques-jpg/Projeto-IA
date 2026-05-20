@@ -119,10 +119,34 @@ class Board:
                     for t, er, ec in unknowns:
                         self.set_edge_val(t, er, ec, 1)
                     changed = True
+
+        for r in range(self.N):
+            for c in range(self.M):
+                clue = self.clues[r][c]
+                if clue != '.':
+                    active = self.get_active_edges(r, c)
+                    unknown = len(self.get_unknown_edges(r, c))
+                    if active > int(clue) or (active + unknown) < int(clue):
+                        return None
+
+        for vr in range(self.N + 1):
+            for vc in range(self.M + 1):
+                touching = self.get_edges_touching_vertex(vr, vc)
+                active = sum(1 for t, r, c in touching if self.get_edge_val(t, r, c) == 1)
+                unknown = sum(1 for t, r, c in touching if self.get_edge_val(t, r, c) == -1)
+                if active > 2:
+                    return None
+                if active == 1 and unknown == 0:
+                    return None
+
         return changed
     def propagate_constraints(self):
-        while self.apply_logical_patterns():
-            pass
+        while True:
+            changed = self.apply_logical_patterns()
+            if changed is None:
+                return None
+            if not changed:
+                return None
 
     def has_premature_closed_loop(self) -> bool:
         """ A SOLUÇÃO DO TIMEOUT: Identifica qualquer ciclo na board inteira e valida-o de forma robusta. """
@@ -199,6 +223,14 @@ class Board:
                 unknown = sum(1 for t, er, ec in touching if self.get_edge_val(t, er, ec) == -1)
                 if active > 2: return False
                 if active == 1 and unknown == 0: return False # Fio Solto Permanentemente Morto
+                if active == 1 and unknown == 1:
+                    open_edge = next(e for e in touching if self.get_edge_val(*e) == -1)
+                    other_vr, other_vc = self.get_other_vertex(open_edge, (vr, vc))
+                    other_touching = self.get_edges_touching_vertex(other_vr, other_vc)
+                    other_active = sum(1 for t, er, ec in other_touching if self.get_edge_val(t, er, ec) == 1)
+                    other_unknown = sum(1 for t, er, ec in other_touching if self.get_edge_val(t, er, ec) == -1)
+                    if other_active == 2 and other_unknown == 0:
+                        return False
 
         if self.has_premature_closed_loop():
             return False
@@ -233,57 +265,85 @@ class Slitherlink(Problem):
         super().__init__(SlitherlinkState(board))
 
     def actions(self, state: SlitherlinkState):
-        """ Heurísticas rigorosas: Seleciona sempre a opção mais restritiva (MRV). """
         board = state.board
         if not board.is_valid():
             return []
-        
-        best_edge = None
-        min_unknowns = 5
-        
-        # 1. Encontrar a Célula com MENOS arestas por descobrir (MRV)
-        for r in range(board.N):
-            for c in range(board.M):
-                if board.clues[r][c] != '.':
-                    unknowns = board.get_unknown_edges(r, c)
-                    l = len(unknowns)
-                    if 0 < l < min_unknowns:
-                        min_unknowns = l
-                        best_edge = unknowns[0]
-                        if min_unknowns == 1: break
-            if min_unknowns == 1: break
-            
-        # 2. Heurística Secundária: Tentar Estender Caminhos Já Existentes
-        if not best_edge:
-            for vr in range(board.N + 1):
-                for vc in range(board.M + 1):
-                    touching = board.get_edges_touching_vertex(vr, vc)
-                    active = sum(1 for t, r, c in touching if board.get_edge_val(t, r, c) == 1)
-                    if active == 1:
-                        for t, r, c in touching:
-                            if board.get_edge_val(t, r, c) == -1:
-                                best_edge = (t, r, c)
-                                break
-                    if best_edge: break
-                if best_edge: break
 
-        # 3. Fallback: Qualquer aresta livre
-        if not best_edge:
-            for r in range(board.N + 1):
-                for c in range(board.M):
-                    if board.h_edges[r][c] == -1: best_edge = ('h', r, c); break
-                if best_edge: break
-            if not best_edge:
-                for r in range(board.N):
-                    for c in range(board.M + 1):
-                        if board.v_edges[r][c] == -1: best_edge = ('v', r, c); break
-                    if best_edge: break
-                    
-        # Força sempre a opção "1" (Tentar criar circuito) antes da "0" (Bloquear)
-        if best_edge:
-            return [(best_edge, 1), (best_edge, 0)]
-            
-        return []
+        def edge_cells(edge):
+            t, r, c = edge
+            cells = []
+            if t == 'h':
+                if r > 0:
+                    cells.append((r - 1, c))
+                if r < board.N:
+                    cells.append((r, c))
+            else:
+                if c > 0:
+                    cells.append((r, c - 1))
+                if c < board.M:
+                    cells.append((r, c))
+            return cells
+
+        def edge_vertices(edge):
+            t, r, c = edge
+            if t == 'h':
+                return [(r, c), (r, c + 1)]
+            return [(r, c), (r + 1, c)]
+
+        def edge_score(edge):
+            score = 0
+
+            for cr, cc in edge_cells(edge):
+                clue = board.clues[cr][cc]
+                if clue == '.':
+                    continue
+
+                clue_val = int(clue)
+                active = board.get_active_edges(cr, cc)
+                unknown = len(board.get_unknown_edges(cr, cc))
+                remaining = clue_val - active
+
+                # Prefer tighter numbered cells and cells close to completion.
+                score += 20 + (4 - unknown) * 4
+                score += max(0, 4 - abs(clue_val - active))
+                if remaining == unknown:
+                    score += 12
+                if remaining == 1:
+                    score += 10
+
+            for vr, vc in edge_vertices(edge):
+                touching = board.get_edges_touching_vertex(vr, vc)
+                active = sum(1 for t, er, ec in touching if board.get_edge_val(t, er, ec) == 1)
+                unknown = sum(1 for t, er, ec in touching if board.get_edge_val(t, er, ec) == -1)
+
+                # Prefer extending open endpoints, especially near-dead-end corridors.
+                if active == 1:
+                    score += 18
+                    score += max(0, 4 - unknown) * 3
+                    if unknown == 1:
+                        score += 12
+                elif active == 0 and unknown <= 2:
+                    score += 2 + (2 - unknown)
+
+            return score
+
+        candidates = []
+        for r in range(board.N + 1):
+            for c in range(board.M):
+                if board.h_edges[r][c] == -1:
+                    edge = ('h', r, c)
+                    candidates.append((edge_score(edge), edge))
+        for r in range(board.N):
+            for c in range(board.M + 1):
+                if board.v_edges[r][c] == -1:
+                    edge = ('v', r, c)
+                    candidates.append((edge_score(edge), edge))
+
+        if not candidates:
+            return []
+
+        best_edge = max(candidates, key=lambda item: (item[0], item[1]))[1]
+        return [(best_edge, 1), (best_edge, 0)]
 
     def result(self, state: SlitherlinkState, action):
         edge, val = action
