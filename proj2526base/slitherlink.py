@@ -23,41 +23,100 @@ class SlitherlinkState:
         return self.id < other.id
 
 class Board:
-    def __init__(self, clues):
+    def __init__(self, clues, h_edges=None, v_edges=None, trail=None, marks=None):
         self.clues = clues
         self.N = len(clues)
         self.M = len(clues[0])
-        self.h_edges = [[-1 for _ in range(self.M)] for _ in range(self.N + 1)]
-        self.v_edges = [[-1 for _ in range(self.M + 1)] for _ in range(self.N)]
+
+        if h_edges is not None:
+            self.h_edges = h_edges
+        else:
+            self.h_edges = [[-1 for _ in range(self.M)] for _ in range(self.N + 1)]
+
+        if v_edges is not None:
+            self.v_edges = v_edges
+        else:
+            self.v_edges = [[-1 for _ in range(self.M + 1)] for _ in range(self.N)]
+
+        self._cell_edges = [
+            [
+                (('h', r, c), ('v', r, c + 1), ('h', r + 1, c), ('v', r, c))
+                for c in range(self.M)
+            ]
+            for r in range(self.N)
+        ]
+        self._vertex_edges = [
+            [
+                tuple(
+                    edge for edge in (
+                        ('h', vr, vc - 1) if vc > 0 else None,
+                        ('h', vr, vc) if vc < self.M else None,
+                        ('v', vr - 1, vc) if vr > 0 else None,
+                        ('v', vr, vc) if vr < self.N else None,
+                    )
+                    if edge is not None
+                )
+                for vc in range(self.M + 1)
+            ]
+            for vr in range(self.N + 1)
+        ]
+
+        self._trail = list(trail) if trail is not None else []
+        self._marks = list(marks) if marks is not None else []
 
     def get_cell_edges(self, row: int, col: int) -> list:
-        return [
-            ('h', row, col),       # Top
-            ('v', row, col + 1),   # Right
-            ('h', row + 1, col),   # Bottom
-            ('v', row, col)        # Left
-        ]
+        return self._cell_edges[row][col]
 
     def get_edge_val(self, t: str, r: int, c: int) -> int:
         return self.h_edges[r][c] if t == 'h' else self.v_edges[r][c]
 
-    def set_edge_val(self, t: str, r: int, c: int, val: int):
+    def set_edge_val(self, t: str, r: int, c: int, val: int, track: bool = True):
+        old = self.get_edge_val(t, r, c)
+        if old == val:
+            return
+        if track:
+            self._trail.append((t, r, c, old))
         if t == 'h': self.h_edges[r][c] = val
         else: self.v_edges[r][c] = val
 
+    def assign_edge(self, t: str, r: int, c: int, val: int) -> bool:
+        current = self.get_edge_val(t, r, c)
+        if current == val:
+            return True
+        if current != -1:
+            return False
+        self.set_edge_val(t, r, c, val)
+        return True
+
+    def push_trail(self):
+        self._marks.append(len(self._trail))
+
+    def rollback_trail(self):
+        mark = self._marks.pop()
+        while len(self._trail) > mark:
+            t, r, c, old = self._trail.pop()
+            if t == 'h': self.h_edges[r][c] = old
+            else: self.v_edges[r][c] = old
+
+    def commit_trail(self):
+        self._marks.pop()
+
     def get_active_edges(self, row: int, col: int) -> int:
-        return sum(1 for t, r, c in self.get_cell_edges(row, col) if self.get_edge_val(t, r, c) == 1)
+        active = 0
+        for t, r, c in self.get_cell_edges(row, col):
+            if self.get_edge_val(t, r, c) == 1:
+                active += 1
+        return active
 
     def get_unknown_edges(self, row: int, col: int) -> list:
-        return [(t, r, c) for t, r, c in self.get_cell_edges(row, col) if self.get_edge_val(t, r, c) == -1]
+        unknowns = []
+        for t, r, c in self.get_cell_edges(row, col):
+            if self.get_edge_val(t, r, c) == -1:
+                unknowns.append((t, r, c))
+        return unknowns
 
     def get_edges_touching_vertex(self, vr: int, vc: int) -> list:
-        edges = []
-        if vc > 0: edges.append(('h', vr, vc - 1))
-        if vc < self.M: edges.append(('h', vr, vc))
-        if vr > 0: edges.append(('v', vr - 1, vc))
-        if vr < self.N: edges.append(('v', vr, vc))
-        return edges
+        return self._vertex_edges[vr][vc]
 
     @staticmethod
     def get_other_vertex(edge, v):
@@ -68,10 +127,9 @@ class Board:
         return v2 if v == v1 else v1
 
     def copy(self):
-        new_board = Board(self.clues)
-        new_board.h_edges = [row[:] for row in self.h_edges]
-        new_board.v_edges = [row[:] for row in self.v_edges]
-        return new_board
+        h_copy = [row[:] for row in self.h_edges]
+        v_copy = [row[:] for row in self.v_edges]
+        return Board(self.clues, h_edges=h_copy, v_edges=v_copy)
 
     @staticmethod
     def parse_instance():
@@ -89,8 +147,14 @@ class Board:
                 if clue == '.':
                     continue
                 clue_val = int(clue)
-                active = self.get_active_edges(r, c)
-                unknowns = self.get_unknown_edges(r, c)
+                active = 0
+                unknowns = []
+                for t, er, ec in self.get_cell_edges(r, c):
+                    edge_val = self.get_edge_val(t, er, ec)
+                    if edge_val == 1:
+                        active += 1
+                    elif edge_val == -1:
+                        unknowns.append((t, er, ec))
                 if not unknowns:
                     continue
                 if active == clue_val:
@@ -106,9 +170,17 @@ class Board:
         for vr in range(self.N + 1):
             for vc in range(self.M + 1):
                 touching = self.get_edges_touching_vertex(vr, vc)
-                active = sum(1 for t, r, c in touching if self.get_edge_val(t, r, c) == 1)
-                inactive = sum(1 for t, r, c in touching if self.get_edge_val(t, r, c) == 0)
-                unknowns = [e for e in touching if self.get_edge_val(*e) == -1]
+                active = 0
+                inactive = 0
+                unknowns = []
+                for t, r, c in touching:
+                    edge_val = self.get_edge_val(t, r, c)
+                    if edge_val == 1:
+                        active += 1
+                    elif edge_val == 0:
+                        inactive += 1
+                    else:
+                        unknowns.append((t, r, c))
                 if not unknowns:
                     continue
                 if active == 2 or inactive == len(touching) - 1:
@@ -124,16 +196,28 @@ class Board:
             for c in range(self.M):
                 clue = self.clues[r][c]
                 if clue != '.':
-                    active = self.get_active_edges(r, c)
-                    unknown = len(self.get_unknown_edges(r, c))
+                    active = 0
+                    unknown = 0
+                    for t, er, ec in self.get_cell_edges(r, c):
+                        edge_val = self.get_edge_val(t, er, ec)
+                        if edge_val == 1:
+                            active += 1
+                        elif edge_val == -1:
+                            unknown += 1
                     if active > int(clue) or (active + unknown) < int(clue):
                         return None
 
         for vr in range(self.N + 1):
             for vc in range(self.M + 1):
                 touching = self.get_edges_touching_vertex(vr, vc)
-                active = sum(1 for t, r, c in touching if self.get_edge_val(t, r, c) == 1)
-                unknown = sum(1 for t, r, c in touching if self.get_edge_val(t, r, c) == -1)
+                active = 0
+                unknown = 0
+                for t, r, c in touching:
+                    edge_val = self.get_edge_val(t, r, c)
+                    if edge_val == 1:
+                        active += 1
+                    elif edge_val == -1:
+                        unknown += 1
                 if active > 2:
                     return None
                 if active == 1 and unknown == 0:
@@ -144,9 +228,9 @@ class Board:
         while True:
             changed = self.apply_logical_patterns()
             if changed is None:
-                return None
+                return False
             if not changed:
-                return None
+                return True
 
     def has_premature_closed_loop(self) -> bool:
         """ A SOLUÇÃO DO TIMEOUT: Identifica qualquer ciclo na board inteira e valida-o de forma robusta. """
@@ -211,24 +295,48 @@ class Board:
             for c in range(self.M):
                 clue = self.clues[r][c]
                 if clue != '.':
-                    active = self.get_active_edges(r, c)
-                    unknown = len(self.get_unknown_edges(r, c))
+                    active = 0
+                    unknown = 0
+                    for t, er, ec in self.get_cell_edges(r, c):
+                        edge_val = self.get_edge_val(t, er, ec)
+                        if edge_val == 1:
+                            active += 1
+                        elif edge_val == -1:
+                            unknown += 1
                     if active > int(clue) or (active + unknown) < int(clue):
                         return False
         
         for vr in range(self.N + 1):
             for vc in range(self.M + 1):
                 touching = self.get_edges_touching_vertex(vr, vc)
-                active = sum(1 for t, er, ec in touching if self.get_edge_val(t, er, ec) == 1)
-                unknown = sum(1 for t, er, ec in touching if self.get_edge_val(t, er, ec) == -1)
+                active = 0
+                unknown = 0
+                for t, er, ec in touching:
+                    edge_val = self.get_edge_val(t, er, ec)
+                    if edge_val == 1:
+                        active += 1
+                    elif edge_val == -1:
+                        unknown += 1
                 if active > 2: return False
                 if active == 1 and unknown == 0: return False # Fio Solto Permanentemente Morto
                 if active == 1 and unknown == 1:
-                    open_edge = next(e for e in touching if self.get_edge_val(*e) == -1)
+                    open_edge = None
+                    for edge in touching:
+                        if self.get_edge_val(*edge) == -1:
+                            open_edge = edge
+                            break
+                    if open_edge is None:
+                        return False
                     other_vr, other_vc = self.get_other_vertex(open_edge, (vr, vc))
                     other_touching = self.get_edges_touching_vertex(other_vr, other_vc)
-                    other_active = sum(1 for t, er, ec in other_touching if self.get_edge_val(t, er, ec) == 1)
-                    other_unknown = sum(1 for t, er, ec in other_touching if self.get_edge_val(t, er, ec) == -1)
+                    other_active = 0
+                    other_unknown = 0
+                    for t, er, ec in other_touching:
+                        edge_val = self.get_edge_val(t, er, ec)
+                        if edge_val == 1:
+                            other_active += 1
+                        elif edge_val == -1:
+                            other_unknown += 1
                     if other_active == 2 and other_unknown == 0:
                         return False
 
@@ -263,6 +371,40 @@ class Slitherlink(Problem):
     def __init__(self, board: Board):
         board.propagate_constraints()
         super().__init__(SlitherlinkState(board))
+
+    def _trail_dfs(self, board: Board):
+        state = SlitherlinkState(board)
+        if self.goal_test(state):
+            return state
+
+        actions = self.actions(state)
+        if not actions:
+            return None
+
+        for edge, val in actions:
+            t, r, c = edge
+            if board.get_edge_val(t, r, c) not in (-1, val):
+                continue
+
+            board.push_trail()
+            board.set_edge_val(t, r, c, val, track=True)
+            ok = board.propagate_constraints()
+
+            if ok:
+                result_state = self._trail_dfs(board)
+                if result_state is not None:
+                    board.commit_trail()
+                    return result_state
+
+            board.rollback_trail()
+
+        return None
+
+    def custom_depth_first_tree_search(self):
+        solved_state = self._trail_dfs(self.initial.board)
+        if solved_state is None:
+            return None
+        return Node(solved_state)
 
     def actions(self, state: SlitherlinkState):
         board = state.board
