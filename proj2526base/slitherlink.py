@@ -8,7 +8,6 @@ import sys
 from collections import deque
 from search import (
     Problem,
-    Node,
     depth_first_tree_search
 )
 
@@ -16,15 +15,18 @@ class SlitherlinkState:
     state_id = 0
 
     def __init__(self, board):
+        # Initialize a state wrapper around a board and assign a unique id.
         self.board = board
         self.id = SlitherlinkState.state_id
         SlitherlinkState.state_id += 1
 
     def __lt__(self, other):
+        # Order states by creation id for deterministic comparisons.
         return self.id < other.id
 
 class Board:
     def __init__(self, clues, h_edges=None, v_edges=None, trail=None, marks=None):
+        # Build the board, precompute edge maps, and initialize counters.
         self.clues = clues
         self.N = len(clues)
         self.M = len(clues[0])
@@ -79,6 +81,7 @@ class Board:
         self._init_counts()
 
     def _init_counts(self):
+        # Initialize cached counts for cells, vertices, and total edges.
         for r in range(self.N + 1):
             for c in range(self.M):
                 val = self.h_edges[r][c]
@@ -124,10 +127,12 @@ class Board:
                         self._cell_unknown[r][c] += 1
 
     def _update_counts_for_edge(self, t: str, r: int, c: int, old: int, new: int):
+        # Update cached counts when an edge changes value.
         if old == new:
             return
 
         def apply_delta(delta: int, val: int):
+            # Convert an edge value into active/unknown count deltas.
             if val == 1:
                 return delta, 0
             if val == -1:
@@ -171,12 +176,15 @@ class Board:
                 self._cell_unknown[r][c] += unknown_delta
 
     def get_cell_edges(self, row: int, col: int) -> list:
+        # Return the 4 edges surrounding a given cell.
         return self._cell_edges[row][col]
 
     def get_edge_val(self, t: str, r: int, c: int) -> int:
+        # Read the value of a horizontal or vertical edge.
         return self.h_edges[r][c] if t == 'h' else self.v_edges[r][c]
 
     def set_edge_val(self, t: str, r: int, c: int, val: int, track: bool = True):
+        # Set an edge value and update caches and trail tracking.
         old = self.get_edge_val(t, r, c)
         if old == val:
             return
@@ -188,73 +196,45 @@ class Board:
         if t == 'h': self.h_edges[r][c] = val
         else: self.v_edges[r][c] = val
 
-    def assign_edge(self, t: str, r: int, c: int, val: int) -> bool:
-        current = self.get_edge_val(t, r, c)
-        if current == val:
-            return True
-        if current != -1:
-            return False
-        self.set_edge_val(t, r, c, val)
-        return True
-
-    def push_trail(self):
-        self._marks.append(len(self._trail))
-
-    def rollback_trail(self):
-        mark = self._marks.pop()
-        while len(self._trail) > mark:
-            t, r, c, old = self._trail.pop()
-            current = self.get_edge_val(t, r, c)
-            self._update_counts_for_edge(t, r, c, current, old)
-            if t == 'h': self.h_edges[r][c] = old
-            else: self.v_edges[r][c] = old
-        self._valid_cache = None
-        self._loop_cache = None
-
-    def commit_trail(self):
-        self._marks.pop()
-
     def get_active_edges(self, row: int, col: int) -> int:
+        # Return the number of active edges around a cell.
         return self._cell_active[row][col]
 
-    def get_unknown_edges(self, row: int, col: int) -> list:
-        unknowns = []
-        for t, r, c in self.get_cell_edges(row, col):
-            if self.get_edge_val(t, r, c) == -1:
-                unknowns.append((t, r, c))
-        return unknowns
-
     def get_edges_touching_vertex(self, vr: int, vc: int) -> list:
+        # Return all edges incident to a vertex.
         return self._vertex_edges[vr][vc]
 
     @staticmethod
     def get_other_vertex(edge, v):
-        """ Devolve o vértice oposto de uma aresta. """
+        # Given an edge and one endpoint, return the opposite endpoint.
         t, r, c = edge
         v1 = (r, c)
         v2 = (r, c + 1) if t == 'h' else (r + 1, c)
         return v2 if v == v1 else v1
 
     def copy(self):
+        # Create a deep copy of the board edges for branching.
         h_copy = [row[:] for row in self.h_edges]
         v_copy = [row[:] for row in self.v_edges]
         return Board(self.clues, h_edges=h_copy, v_edges=v_copy)
 
     @staticmethod
     def parse_instance():
+        # Parse a board instance from stdin.
         clues_temp = []
         for line in sys.stdin:
-            value = line.split()
+            value = line.split()a
             if value: clues_temp.append(value)
         return Board(tuple(tuple(l) for l in clues_temp))
 
     def apply_logical_patterns(self):
+        # Apply deterministic constraint rules; return False on contradiction.
         changed = False
         h_edges = self.h_edges
         v_edges = self.v_edges
         cell_edges = self._cell_edges
         vertex_edges = self._vertex_edges
-        cell_active = self._cell_active
+        cell_active = self._cell_active3
         cell_unknown = self._cell_unknown
         vertex_active = self._vertex_active
         vertex_unknown = self._vertex_unknown
@@ -283,7 +263,6 @@ class Board:
                         set_edge_val(t, er, ec, 1)
                     changed = True
 
-        # Regras dos vértices
         for vr in range(self.N + 1):
             for vc in range(self.M + 1):
                 touching = vertex_edges[vr][vc]
@@ -325,6 +304,7 @@ class Board:
 
         return changed
     def propagate_constraints(self):
+        # Repeatedly apply logical rules until convergence or contradiction.
         while True:
             changed = self.apply_logical_patterns()
             if changed is None:
@@ -333,9 +313,9 @@ class Board:
                 return True
 
     def has_premature_closed_loop(self) -> bool:
+        # Detect closed loops that violate remaining clues.
         if self._loop_cache is not None:
             return self._loop_cache
-        """ A SOLUÇÃO DO TIMEOUT: Identifica qualquer ciclo na board inteira e valida-o de forma robusta. """
         active_edges = set()
         for r in range(self.N + 1):
             for c in range(self.M):
@@ -350,7 +330,6 @@ class Board:
 
         unvisited = active_edges.copy()
 
-        # O ciclo While assegura que verifica todas as linhas separadas no tabuleiro
         while unvisited:
             start_edge = unvisited.pop()
             visited_in_this_component = set([start_edge])
@@ -365,7 +344,6 @@ class Board:
             while queue:
                 curr_v, came_from = queue.pop()
                 
-                # Se batermos no ponto de início v1 por outro caminho, temos ciclo fechado
                 if curr_v == v1:
                     closed_loop = True
                     break
@@ -382,11 +360,9 @@ class Board:
                     queue.append((n_v, next_e))
 
             if closed_loop:
-                # Se for um ciclo mas existirem outras linhas ativas no mapa -> Ciclo Prematuro (Falso)
                 if len(visited_in_this_component) < len(active_edges):
                     self._loop_cache = True
                     return True
-                # Se for o único ciclo mas deixámos números por satisfazer -> Fecho Incorreto (Falso)
                 for row in range(self.N):
                     for col in range(self.M):
                         clue_val = self.clue_vals[row][col]
@@ -397,9 +373,9 @@ class Board:
         return False
 
     def is_valid(self) -> bool:
+        # Check local constraints and cache the validity result.
         if self._valid_cache is not None:
             return self._valid_cache
-        """ Poda mortes prematuras na árvore de procura CSP. """
         h_edges = self.h_edges
         v_edges = self.v_edges
         cell_edges = self._cell_edges
@@ -428,7 +404,7 @@ class Board:
                     return False
                 if active == 1 and unknown == 0:
                     self._valid_cache = False
-                    return False # Fio Solto Permanentemente Morto
+                    return False
                 if active == 1 and unknown == 1:
                     open_edge = None
                     for edge in touching:
@@ -460,11 +436,12 @@ class Board:
         return True
 
     def check_single_loop(self, skip_premature_check: bool = False) -> bool:
+        # Verify that the current active edges can form a single loop.
         if not skip_premature_check and self.has_premature_closed_loop(): return False
         return self._total_active_edges > 0
 
     def print_solution(self):
-        """ Saída Exata para o Gitlab """
+        # Print the solution in the required tab-separated format.
         out_lines = []
         for r in range(self.N):
             row_str = []
@@ -480,44 +457,12 @@ class Board:
 
 class Slitherlink(Problem):
     def __init__(self, board: Board):
+        # Initialize the problem and propagate initial constraints.
         board.propagate_constraints()
         super().__init__(SlitherlinkState(board))
 
-    def _trail_dfs(self, board: Board):
-        state = SlitherlinkState(board)
-        if self.goal_test(state):
-            return state
-
-        actions = self.actions(state)
-        if not actions:
-            return None
-
-        for edge, val in actions:
-            t, r, c = edge
-            if board.get_edge_val(t, r, c) not in (-1, val):
-                continue
-
-            board.push_trail()
-            board.set_edge_val(t, r, c, val, track=True)
-            ok = board.propagate_constraints()
-
-            if ok:
-                result_state = self._trail_dfs(board)
-                if result_state is not None:
-                    board.commit_trail()
-                    return result_state
-
-            board.rollback_trail()
-
-        return None
-
-    def custom_depth_first_tree_search(self):
-        solved_state = self._trail_dfs(self.initial.board)
-        if solved_state is None:
-            return None
-        return Node(solved_state)
-
     def actions(self, state: SlitherlinkState):
+        # Generate the next branching actions based on heuristic scoring.
         board = state.board
         if not board.is_valid():
             return []
@@ -528,6 +473,7 @@ class Slitherlink(Problem):
         vertex_unknown = board._vertex_unknown
 
         def edge_cells(edge):
+            # Return the cells adjacent to an edge.
             t, r, c = edge
             cells = []
             if t == 'h':
@@ -543,12 +489,14 @@ class Slitherlink(Problem):
             return cells
 
         def edge_vertices(edge):
+            # Return the vertices that an edge connects.
             t, r, c = edge
             if t == 'h':
                 return [(r, c), (r, c + 1)]
             return [(r, c), (r + 1, c)]
 
         def edge_score(edge):
+            # Score an edge for branching preference.
             score = 0
 
             for cr, cc in edge_cells(edge):
@@ -559,7 +507,6 @@ class Slitherlink(Problem):
                 unknown = cell_unknown[cr][cc]
                 remaining = clue_val - active
 
-                # Prefer tighter numbered cells and cells close to completion.
                 score += 20 + (4 - unknown) * 4
                 score += max(0, 4 - abs(clue_val - active))
                 if remaining == unknown:
@@ -571,7 +518,6 @@ class Slitherlink(Problem):
                 active = vertex_active[vr][vc]
                 unknown = vertex_unknown[vr][vc]
 
-                # Prefer extending open endpoints, especially near-dead-end corridors.
                 if active == 1:
                     score += 18
                     score += max(0, 4 - unknown) * 3
@@ -601,6 +547,7 @@ class Slitherlink(Problem):
         return [(best_edge, 1), (best_edge, 0)]
 
     def result(self, state: SlitherlinkState, action):
+        # Apply an action and return the resulting state.
         edge, val = action
         t, r, c = edge
         new_board = state.board.copy()
@@ -611,6 +558,7 @@ class Slitherlink(Problem):
         return SlitherlinkState(new_board)
 
     def goal_test(self, state: SlitherlinkState):
+                # Check if a state is a complete valid solution.
         board = state.board
         if not board.is_valid(): 
             return False
@@ -635,7 +583,7 @@ class Slitherlink(Problem):
 if __name__ == '__main__':
     board = Board.parse_instance()
     problem = Slitherlink(board)
-    
+
     solucao_node = depth_first_tree_search(problem)
     
     if solucao_node:
